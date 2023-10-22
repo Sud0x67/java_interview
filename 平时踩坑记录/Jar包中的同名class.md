@@ -20,6 +20,7 @@ class A{
 
 ## 为什么会有同包名同类名的class出现
 - jar的打包方式有关
+
 普通jar包：
 
 spring-boot jar包：
