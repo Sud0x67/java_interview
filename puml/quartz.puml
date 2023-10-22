@@ -1,0 +1,33 @@
+@startuml
+class QuartzScheduler{
+    - QuartzSchedulerResources resources
+    - QuartzSchedulerThread schedThread
+    - ThreadGroup threadGroup
+    - SchedulerContext context
+    - ListenerManager listenerManager
+    + initialize() # 初始化bind
+    + start()
+    + startDelayed(final int seconds)
+    + standby()
+    + schduleJob()
+    + addJob()
+    + deleteJob()
+    + scheduleJob()
+    + scheduleJobs()
+    + unscheduleJob()
+    + unscheduleJobs()
+    + addCalender()
+    + deleteCalender()
+    + notifyXXXX()
+
+}
+class StdSchedulerFactory{
+    
+}
+class ExecutingJobsManager
+class QuartzSchedulerThread{
+    - QuartzScheduler qs
+    - QuartzSchedulerResources qsRsrcs
+    + run()
+}
+@enduml
