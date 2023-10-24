@@ -26,4 +26,8 @@ class A{
 spring-boot jar包：
 
 ## 如何排查
+```
+sc -d -f className
+```
+
 arthas ： https://arthas.aliyun.com/doc/quick-start.html
