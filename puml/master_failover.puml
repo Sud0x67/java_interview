@@ -1,0 +1,26 @@
+@startuml
+title failoverMaster
+start
+    if (master node removed?) then (yes)
+        if (acquired lock?) then (yes)
+          #pink:queryNeedFailoverProcessInstancesByHost;
+          while (has process instances?)
+            if(needs process failover?) then (yes)
+              #palegreen: findValidTaskListByProcessId;
+              while(has task instances?)
+                if (needs task failover?) then (yes)
+                  :failoverTaskInstance;
+                endif
+              endwhile
+              :failoverProcessInstance;
+            else (no)
+            endif
+          endwhile
+        else (no)
+         stop
+    endif
+    else (no)
+    stop
+    endif
+stop
+@enduml

@@ -1,0 +1,133 @@
+@startuml
+' Swimlanes using boxes
+box "UI" #LightBlue
+participant "UI" as UI
+end box
+
+box "Api Server" #LightYellow
+participant "ApiServer" as API
+end box
+
+box "DB" #LightGray
+participant "DB" as DB
+end box
+
+box "Zookeeper" #LightGreen
+participant "ZK" as ZK
+end box
+
+box "Master" #LightPink
+participant "MasterSchedulerBootstrap" as Scheduler
+participant "processService\n(workflowService)" as processService
+participant "ProcessInstanceExecCacheManager" as ProcessInstanceExecCacheManager
+participant "WorkflowEventQueue" as WorkflowEventQueue
+participant "WorkflowEventLooper" as WorkflowEventLooper
+participant "WorkflowExecuteRunnable" as WorkflowExecuteRunnable
+participant "StateEventQueue" as StateEventQueue
+participant EventExecuteService as EventExecuteService
+participant "TaskStateEventHandler" as TaskStateEventHandler
+participant "TaskExecuteProcessor" as TaskExecuteProcessor
+participant "TaskPriorityQueue" as TaskPriorityQueue
+participant "TaskPriorityQueueConsumer" as PQConsumer
+participant "ExecutorDispatcher" as ExecutorDispatcher
+participant HostManager as HostManager
+end box
+
+box "Worker" #Lavender
+participant TaskDispatchProcessor as TaskDispatchProcessor
+participant "WorkerManagerThread" as WorkerManagerThread
+participant "WaitSubmitQueue" as WaitSubmitQueue
+participant "WorkerExecService" as WorkerExecService
+participant "TaskExecuteThread" as TaskExecuteThread
+participant "TaskPluginManager" as TaskPluginManager
+end box
+
+' Flow from UI to ApiServer
+UI -> API : Start Process
+activate API
+API -> API : Encapsulate Command
+API -> DB : Persist Command
+activate DB
+DB --> API : Persisted
+deactivate DB
+API --> UI : started
+deactivate API
+
+' Master scheduler acquires lock and finds command
+Scheduler -> ZK : acquire lock \n (当前版本已经改为无锁设计)
+activate ZK
+ZK --> Scheduler : locked
+deactivate ZK
+
+Scheduler -> DB : findOneCommand()/findCommandsBySlot()
+activate DB
+DB --> Scheduler : command
+deactivate DB
+
+Scheduler -> ZK : release lock
+
+Scheduler -> processService : handle command
+activate processService
+
+' Create process instance and change state
+processService -> DB : create Process Instance
+activate DB
+DB --> processService : created
+deactivate DB
+deactivate processService
+
+Scheduler -> ProcessInstanceExecCacheManager: put(instanceId, WorkflowRunnable)
+Scheduler -> WorkflowEventQueue:  add(START_WORKFLOW_EVENT)
+
+
+WorkflowEventLooper -> WorkflowEventQueue:  poolEvent()
+activate WorkflowEventLooper
+WorkflowEventQueue --> WorkflowEventLooper : event
+deactivate WorkflowEventLooper
+
+
+WorkflowEventLooper -> WorkflowExecuteRunnable:  onStartWorkflow()
+activate WorkflowEventLooper
+WorkflowExecuteRunnable -> WorkflowExecuteRunnable: INITIALIZE_DAG
+WorkflowExecuteRunnable -> WorkflowExecuteRunnable: INITIALIZE_QUEUE
+group submitPostNode
+    loop tasks meet condition
+        WorkflowExecuteRunnable -> TaskExecuteProcessor : submitTask
+        TaskExecuteProcessor -> "DB":  persist taskInstance
+        WorkflowExecuteRunnable -> TaskExecuteProcessor : dispatchTask
+        TaskExecuteProcessor -> TaskPriorityQueue : put(taskWithPriority)
+    end
+end
+deactivate WorkflowExecuteRunnable
+
+PQConsumer -> TaskPriorityQueue: take()
+activate PQConsumer
+TaskPriorityQueue -> PQConsumer : taskInstance
+deactivate PQConsumer
+
+PQConsumer -> ExecutorDispatcher: dispatch(taskWithPriority)
+activate ExecutorDispatcher
+ExecutorDispatcher -> HostManager: selectWorker()
+ExecutorDispatcher -> TaskDispatchProcessor: dispatchToWorker()
+deactivate ExecutorDispatcher
+
+TaskDispatchProcessor -> WorkerManagerThread: offer(TaskExecuteThread)
+WorkerManagerThread -> WaitSubmitQueue: offer(TaskExecuteThread)
+loop
+WorkerManagerThread -> WaitSubmitQueue: take()
+WaitSubmitQueue --> WorkerManagerThread : TaskExecuteThread
+WorkerManagerThread -> WorkerExecService: submit(TaskExecuteThread)
+WorkerExecService -> TaskExecuteThread: run()
+TaskExecuteThread -> TaskPluginManager: initializedTask
+TaskPluginManager -> TaskExecuteThread: Task
+TaskExecuteThread -> TaskExecuteThread: task.handle()
+TaskExecuteThread -> StateEventQueue : sendMessageWithRetry(FINISH_TASK_EVENT)
+end
+
+group executeEvent
+EventExecuteService -> ProcessInstanceExecCacheManager: getAllWorkflowRunnable()
+WorkflowExecuteRunnable -> WorkflowExecuteRunnable: handleEvents()
+TaskStateEventHandler -> WorkflowExecuteRunnable: taskFinished()
+WorkflowExecuteRunnable --> DB: updateProcessInstanceState
+end
+@enduml
