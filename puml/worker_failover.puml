@@ -1,0 +1,17 @@
+@startuml
+title failover Worker
+start
+  if (worker node removed?) then (yes)
+    :queryNeedFailoverTaskInstance;
+    while (has task instances?)
+      if(needs task instance failover?) then (yes)
+      partition failover task instance{
+                #palegreen:updateTaskInstance(failover);
+                #palegreen: WorkflowRunnable.submitStateEvent(stateChangeEvent);
+      }
+      else (no)
+      endif
+    endwhile
+  endif
+stop
+@enduml
